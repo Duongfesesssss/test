@@ -1,0 +1,338 @@
+<template>
+  <div>
+    <div class="container-fluid">
+      <h1 class="text-center">Danh sách các toà nhà</h1>
+      <Form v-if="show" @submit="submit" :validation-schema="schema" v-slot="{ errors }">
+        <div class="mb-3">
+          <Field v-model="newBuilding.name" name="name" type="text" class="form-control" placeholder="Tên tòa nhà" />
+          <span class="text-danger">{{ errors.name }}</span>
+        </div>
+        <div class="mb-3">
+          <Field v-model="newBuilding.address" name="address" type="text" class="form-control" placeholder="Địa chỉ" />
+          <span class="text-danger">{{ errors.address }}</span>
+        </div>
+        <div class="mb-3">
+          <Field v-model="newBuilding.representative" name="representative" type="text" class="form-control" placeholder="Người đại diện" />
+          <span class="text-danger">{{ errors.representative }}</span>
+        </div>
+        <div class="mb-3">
+          <Field v-model="newBuilding.phone" name="phone" type="text" class="form-control" placeholder="Số điện thoại" />
+          <span class="text-danger">{{ errors.phone }}</span>
+        </div>
+        <div class="mb-3">
+          <Field v-model="newBuilding.cccd" name="cccd" type="text" class="form-control" placeholder="CCCD" />
+          <span class="text-danger">{{ errors.cccd }}</span>
+        </div>
+        <div class="mb-3">
+          <Field v-model="newBuilding.cccdDate" name="cccdDate" type="date" class="form-control" placeholder="Ngày cấp CCCD" />
+          <span class="text-danger">{{ errors.cccdDate }}</span>
+        </div>
+        <button type="submit" v-if="!isEditing" class="btn btn-primary ml-2">Thêm</button>
+        <button type="submit" v-if="isEditing" class="btn btn-primary ml-2">Cập nhật</button>
+        <button type="button" @click="cancelEdit" v-if="isEditing" class="btn btn-secondary ml-2">Hủy</button>
+        <button type="button" @click="clearForm" v-if="isEditing" class="btn btn-secondary ml-2">Xóa hết</button>
+        <button type="button" @click="resetAll" v-if="!isEditing" class="btn btn-danger ml-2">Xóa danh sách</button>
+      </Form>
+
+      <div class="mt-4">
+        <button @click="toggleForm" class="btn btn-success mb-3">{{ show ? "Đóng" : "Form" }}</button>
+        <div>
+          <DataTable :columns="columns" :data="buildings" class="table table-striped" width="100%">
+            <template #column-7="{ row, rowIndex }">
+              <button type="button" class="btn btn-primary" @click="editBuilding(rowIndex)">Chỉnh sửa</button>
+              <button type="button" class="btn btn-danger" @click="removeBuilding(rowIndex)">Xóa</button>
+            </template>
+          </DataTable>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted, computed } from 'vue';
+import Swal from 'sweetalert2';
+import { Form, Field, defineRule } from 'vee-validate';
+import { length } from '@vee-validate/rules';
+import DataTable from 'datatables.net-vue3';
+import DataTablesCore from 'datatables.net-bs5';
+import { useFetch } from '#app';
+
+
+defineRule('length', length);
+defineRule('required', value => {
+  if (!value || !value.length) {
+    return 'Trường này không được để trống';
+  }
+  return true;
+});
+defineRule('minlength', (value, [limit]) => {
+  if (!value || !value.length) {
+    return true;
+  }
+  if (value.length < limit) {
+    return `Ít nhất ${limit} ký tự`;
+  }
+  return true;
+});
+defineRule('flength', (value, [limit]) => {
+  if (!value || !value.length) {
+    return true;
+  }
+  if (value.length !== limit || value.length !== 9) {
+    return `Yêu cầu ${limit} hoặc 9 ký tự`;
+  }
+  return true;
+});
+defineRule('number', value => {
+  if (!value || !value.length) {
+    return true;
+  }
+  const numberPattern = /^[0-9]+$/;
+  if (!numberPattern.test(value)) {
+    return 'Giá trị phải là dãy số';
+  }
+  return true;
+});
+
+const schema = {
+  name: 'required|minlength:4',
+  address: 'required|minlength:4',
+  representative: 'required|minlength:4',
+  phone: 'required|number|length:10',
+  cccd: 'required|number|length:12',
+  cccdDate: 'required'
+};
+
+const newBuilding = ref({
+  id: null,
+  name: '',
+  address: '',
+  representative: '',
+  phone: '',
+  cccd: '',
+  cccdDate: ''
+});
+
+const buildings = ref([]);
+const isEditing = ref(false);
+const currentIndex = ref(null);
+const show = ref(false);
+
+const apiBaseUrl = 'http://localhost:3000/api/buildings';
+
+
+const fetchBuildings = async () => {
+  try {
+    const data = await $fetch(apiBaseUrl,{
+      method: 'GET' 
+    });
+
+    buildings.value = data.data ;
+    console.log("Buildings:", buildings.value);
+  } 
+  catch (error) {
+    console.error(error);
+  }
+};
+
+
+
+const addBuilding = async () => {
+  try {
+    const data = await $fetch(apiBaseUrl, {
+      method: 'POST',
+      body: JSON.stringify(newBuilding.value),
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    console.log("1");
+    buildings.value.push(data);   //thêm toà nhà mới vào danh sách buildings
+    console.log("2");
+    saveBuildings(); 
+    resetForm(); 
+    Swal.fire({
+      position: 'top-end',
+      icon: 'success',
+      title: 'Bạn đã thêm thành công',
+      showConfirmButton: false,
+      timer: 1500
+    });
+  } catch (error) {
+    console.error('Error adding building:', error);
+  }
+};
+
+
+const updateBuilding = async () => {
+  if (currentIndex.value !== null) {
+    try {
+      const data = await $fetch(`${apiBaseUrl}?id=${newBuilding.value.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(newBuilding.value),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      // Cập nhật danh sách buildings
+      buildings.value[currentIndex.value] = { ...newBuilding.value };
+      saveBuildings(); 
+      resetForm(); 
+      Swal.fire({
+        position: 'top-end',
+        icon: 'success',
+        title: 'Cập nhật thành công',
+        showConfirmButton: false,
+        timer: 1500
+      });
+    } catch (err) {
+      console.error('Error updating building:', err);
+    }
+  }
+};
+
+
+
+
+
+const removeBuilding = async (index) => {
+  const buildingId = buildings.value[index].id;
+
+  try {
+    const data = await $fetch(`${apiBaseUrl}?id=${buildingId}`, {
+      method: 'DELETE'
+    });
+
+    // Xoá thành công
+    buildings.value.splice(index, 1);
+    saveBuildings(); 
+    Swal.fire({
+      position: 'top-end',
+      icon: 'success',
+      title: 'Xoá thành công',
+      showConfirmButton: false,
+      timer: 1500
+    });
+  } catch (error) {
+    console.error('Error deleting building:', error);
+  }
+};
+
+
+
+// lưu buildings vào localstorage
+ const saveBuildings = () => {
+  localStorage.setItem('building', JSON.stringify(buildings.value));
+};
+
+const loadBuildings = () => {
+  const savedBuildings = localStorage.getItem('building');
+  if (savedBuildings) {
+    buildings.value = JSON.parse(savedBuildings);
+    //console.log(buildings.value);
+  }
+};
+
+
+const resetForm = () => {
+  newBuilding.value = {
+    id: null,
+    name: '',
+    address: '',
+    representative: '',
+    phone: '',
+    cccd: '',
+    cccdDate: ''
+  };
+  isEditing.value = false;
+  currentIndex.value = null;
+};
+
+const resetAll = () => {
+  localStorage.clear();
+  buildings.value = [];
+  saveBuildings();
+};
+
+const editBuilding = (index) => {
+  isEditing.value = true;
+  currentIndex.value = index;
+  newBuilding.value = { ...buildings.value[index] };
+  show.value = true;
+};
+
+const cancelEdit = () => {
+  resetForm();
+  show.value = false;
+};
+
+const clearForm = () => {
+  newBuilding.value = {
+    id: null,
+    name: '',
+    address: '',
+    representative: '',
+    phone: '',
+    cccd: '',
+    cccdDate: ''
+  };
+};
+
+const searchBuilding = ref("");
+
+const fbuildings = computed(() => {
+  if (!searchBuilding.value) {
+    return buildings.value;
+  }
+  return buildings.value.filter((x) => {
+    const query = searchBuilding.value.toLowerCase();
+    return (
+      x.id.toString().includes(query) ||
+      x.name.toLowerCase().includes(query) ||
+      x.address.toLowerCase().includes(query) ||
+      x.representative.toLowerCase().includes(query) ||
+      x.phone.toLowerCase().includes(query) ||
+      x.cccd.toLowerCase().includes(query) ||
+      x.cccdDate.toLowerCase().includes(query)
+    );
+  });
+});
+
+const submit = (values) => {
+  if (isEditing.value) {
+    updateBuilding();
+  } else {
+    addBuilding();
+  }
+};
+
+const columns = [
+  { data: 'id', title: 'ID' },
+  { data: 'name', title: 'Tên tòa nhà' },
+  { data: 'address', title: 'Địa chỉ' },
+  { data: 'representative', title: 'Người đại diện' },
+  { data: 'phone', title: 'Số điện thoại' },
+  { data: 'cccd', title: 'CCCD' },
+  { data: 'cccdDate', title: 'Ngày cấp CCCD' },
+  {
+    data: null,
+    title: 'Hành động',
+  }
+];
+
+const toggleForm = () => {
+  show.value = !show.value;
+};
+
+
+
+
+DataTable.use(DataTablesCore);
+
+onMounted(() => {
+  loadBuildings();
+  fetchBuildings();
+});
+</script>
